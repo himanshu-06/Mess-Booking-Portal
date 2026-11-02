@@ -8,7 +8,7 @@ from datetime import datetime, time
 DB_FILE = "mess_booking.db"
 
 def get_db_connection():
-    # Adding timeout parameter prevents database locking issues on Streamlit Cloud
+    # Adding timeout parameter prevents database locking issues on Streamlit Cloud,
     conn = sqlite3.connect(DB_FILE, timeout=10, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn

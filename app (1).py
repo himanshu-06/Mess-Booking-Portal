@@ -234,7 +234,7 @@ if view_selection == "Book Meals":
                     st.success("Reservation logged successfully.")
                     st.rerun()
 
-# --- PANEL 2: INDIVIDUAL BILLING RECORDS ---
+# --- PANEL 2: INDIVIDUAL BILLING RECORDS. ---
 elif view_selection == "My Monthly Bill & History":
     st.header("📊 Individual Statement & Reconciliation Desk")
     

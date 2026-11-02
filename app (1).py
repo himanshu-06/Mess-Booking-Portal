@@ -8,7 +8,7 @@ from datetime import datetime, time
 DB_FILE = "mess_booking.db"
 
 def get_db_connection():
-    # Adding timeout parameter prevents database locking issues on Streamlit Cloud,
+    # Adding timeout parameter prevents database locking issues on Streamlit Cloud
     conn = sqlite3.connect(DB_FILE, timeout=10, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
@@ -48,7 +48,7 @@ def init_db():
     # Standardised admin seeding pattern
     admin_hash = hashlib.sha256("adminpassword".encode()).hexdigest()
     
-    # Safe check: Only insert if not present, wrap in exception block to guarantee app never crashes at boot
+    # Safe check: Only insert if not present
     try:
         cursor.execute("SELECT username FROM users WHERE username = 'admin'")
         if not cursor.fetchone():
@@ -66,7 +66,6 @@ def init_db():
             
         conn.commit()
     except sqlite3.Error:
-        # If the file table layout is structurally corrupted, roll back safely
         conn.rollback()
     finally:
         conn.close()
@@ -232,7 +231,7 @@ if view_selection == "Book Meals":
                         st.success("Reservation logged successfully.")
                         st.rerun()
                     except Exception:
-                        st.error("Database sync delay. Please click verify again.")
+                        st.error("Database sync delay. Please try again.")
                     
     with col2:
         st.subheader(f"🌙 Dinner Session (Price: ₹{dinner_price})")
@@ -248,4 +247,7 @@ if view_selection == "Book Meals":
                     try:
                         conn = get_db_connection()
                         c = conn.cursor()
-                        c.execute("INSERT INTO bookings (username, booking_date, meal_type, price, timestamp) VALUES (?, ?, ?, ?, ?)")
+                        c.execute("INSERT INTO bookings (username, booking_date, meal_type, price, timestamp) VALUES (?, ?, ?, ?, ?)",
+                                  (st.session_state.username, target_date_str, "Dinner", dinner_price, now.strftime("%Y-%m-%d %H:%M:%S")))
+                        conn.commit()
+                        conn.close()

@@ -5,14 +5,12 @@ from datetime import datetime, time
 import zoneinfo
 
 # --- TIMEZONE CONFIGURATION ---
-# Force Indian Standard Time (IST) regardless of server location
 try:
     IST = zoneinfo.ZoneInfo("Asia/Kolkata")
 except Exception:
     IST = zoneinfo.ZoneInfo("UTC")
 
 # --- PRICING LOGIC ---
-# Standard pricing matrix: Weekly repeating base rates (Monday=0, Sunday=6)
 WEEKLY_PRICES = {
     "Lunch": {0: 60, 1: 60, 2: 60, 3: 60, 4: 60, 5: 70, 6: 80},
     "Dinner": {0: 70, 1: 70, 2: 70, 3: 70, 4: 70, 5: 80, 6: 90}
@@ -26,7 +24,7 @@ def get_meal_price(meal_type, date_obj):
 LUNCH_CUTOFF = time(9, 30)
 DINNER_CUTOFF = time(17, 30)
 
-# --- IN-MEMORY/PERSISTENT USER AND BOOKING MATRIX ---
+# --- IN-MEMORY USER AND BOOKING SYSTEM ---
 if "user_db" not in st.session_state:
     st.session_state.user_db = {
         "rahul": hashlib.sha256("password123".encode()).hexdigest(), 
@@ -40,7 +38,6 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def verify_user(username, password):
-    # HARDCODED BYPASS FOR ADMIN: Guarantees access regardless of server file system states
     if username == "admin" and password == "adminpassword":
         return {"authenticated": True, "is_admin": True}
     
@@ -63,11 +60,11 @@ if "username" not in st.session_state:
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
 
-# --- UI INTERFACE GRAPHICS ---
+# --- UI INTERFACE CONFIGURATION ---
 st.set_page_config(page_title="Mess Booking System", page_icon="🍲", layout="wide")
 st.title("🍲 Institutional Mess Booking & Ledger Portal")
 
-# --- AUTHENTICATION SCREEN CONTROLLER ---
+# --- AUTHENTICATION CONTROLLER ---
 if not st.session_state.authenticated:
     auth_mode = st.radio("Choose Mode", ["Log In", "Sign Up / Register User"], horizontal=True)
     
@@ -78,7 +75,7 @@ if not st.session_state.authenticated:
         
         if submit_btn:
             if not username_input or not password_input:
-                st.error("Please fill in all input verification credentials.")
+                st.error("Please fill in all credentials.")
             elif auth_mode == "Log In":
                 res = verify_user(username_input, password_input)
                 if res["authenticated"]:
@@ -91,17 +88,17 @@ if not st.session_state.authenticated:
                     st.error("Invalid credentials entered. Please try again.")
             elif auth_mode == "Sign Up / Register User":
                 if username_input == "admin":
-                    st.error("Reservations restricted. System namespace 'admin' is locked.")
+                    st.error("System namespace 'admin' is locked.")
                 elif register_user(username_input, password_input):
                     st.success("Registration successful! You may now switch to Log In mode.")
                 else:
-                    st.error("Registration failed. Account username already exists.")
+                    st.error("Registration failed. Username already exists.")
     st.stop()
 
-# --- MAIN SYSTEM INTERFACE (AUTHENTICATED) ---
+# --- MAIN INTERFACE (AUTHENTICATED) ---
 st.sidebar.markdown(f"### 👤 Active User: **{st.session_state.username}**")
 if st.session_state.is_admin:
-    st.sidebar.info("👑 Administrator Account Context Active")
+    st.sidebar.info("👑 Administrator Context Active")
 
 if st.sidebar.button("Log Out System"):
     st.session_state.authenticated = False
@@ -109,7 +106,6 @@ if st.sidebar.button("Log Out System"):
     st.session_state.is_admin = False
     st.rerun()
 
-# Dynamic Time tracking with localized zone injection (IST)
 now = datetime.now(IST)
 current_time = now.time()
 
@@ -193,7 +189,7 @@ elif view_selection == "My Monthly Bill & History":
     user_records = [b for b in st.session_state.bookings_list if b['username'] == st.session_state.username and b['booking_date'].startswith(filter_prefix)]
     
     if not user_records:
-        st.info(f"No reservation transaction records found matching user frame filter: {selected_month} {selected_year}")
+        st.info(f"No reservation transaction records found matching: {selected_month} {selected_year}")
     else:
         df = pd.DataFrame(user_records)
         df_display = df[['booking_date', 'meal_type', 'price', 'timestamp']].copy()
@@ -204,14 +200,24 @@ elif view_selection == "My Monthly Bill & History":
         st.subheader("Itemized Transaction Statement History Logs")
         st.dataframe(df_display, use_container_width=True)
 
-# --- PANEL 3: ADMINISTRATIVE PRIVILEGED DASHBOARD ---
+# --- PANEL 3: ADMIN MANAGEMENT CONSOLE ---
 elif view_selection == "👑 Admin Management Console" and st.session_state.is_admin:
     st.header("👑 Centralized System Administrative Command Panel")
     
-    admin_year = st.selectbox("Select Operational Scope Year", ["2026", "2027"], index=0, key="admin_yr")
-    admin_month = st.selectbox("Select Operational Scope Month", 
-                               ["January", "February", "March", "April", "May", "June", 
-                                "July", "August", "September", "October", "November", "December"],
-                               index=now.month - 1, key="admin_mnth")
+    # Quick live look at today's active meal booking counts
+    today_str = now.strftime("%Y-%m-%d")
+    today_lunch_count = sum(1 for b in st.session_state.bookings_list if b['booking_date'] == today_str and b['meal_type'] == 'Lunch')
+    today_dinner_count = sum(1 for b in st.session_state.bookings_list if b['booking_date'] == today_str and b['meal_type'] == 'Dinner')
     
-    a_month_num_str = f"{['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].index(admin_month) + 1:02d}"
+    st.subheader(f"📊 Headcount Tracker for Today ({now.strftime('%d-%b-%Y')})")
+    metric_col1, metric_col2 = st.columns(2)
+    with metric_col1:
+        st.metric(label="☀️ Lunch Bookings for Today", value=f"{today_lunch_count} People")
+    with metric_col2:
+        st.metric(label="🌙 Dinner Bookings for Today", value=f"{today_dinner_count} People")
+    
+    st.write("---")
+    
+    # Month/Year filtering tools for billing sheets
+    st.subheader("🗓️ Historical Invoicing & Monthly Ledger Checks")
+    admin_year = st.selectbox("Select Operational Scope Year", ["2026", "2027"], index=0, key="admin_yr")

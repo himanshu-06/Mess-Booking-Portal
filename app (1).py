@@ -241,4 +241,4 @@ elif view_selection == "My Monthly Bill & History":
     selected_year = st.selectbox("Select Target Year Frame", [2026, 2027], index=0)
     selected_month = st.selectbox("Select Target Billing Month Window", 
                                   ["January", "February", "March", "April", "May", "June", 
-                                   "July", "August", "September", "October", "November", "December"],
+                                   "July", "August", "September", "October", "November", "December"])

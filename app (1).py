@@ -1,10 +1,18 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
 import hashlib
 from datetime import datetime, time
+import zoneinfo
+
+# --- TIMEZONE CONFIGURATION ---
+# Force Indian Standard Time (IST) regardless of server location
+try:
+    IST = zoneinfo.ZoneInfo("Asia/Kolkata")
+except Exception:
+    IST = zoneinfo.ZoneInfo("UTC")
 
 # --- PRICING LOGIC ---
+# Standard pricing matrix: Weekly repeating base rates (Monday=0, Sunday=6)
 WEEKLY_PRICES = {
     "Lunch": {0: 60, 1: 60, 2: 60, 3: 60, 4: 60, 5: 70, 6: 80},
     "Dinner": {0: 70, 1: 70, 2: 70, 3: 70, 4: 70, 5: 80, 6: 90}
@@ -20,7 +28,10 @@ DINNER_CUTOFF = time(17, 30)
 
 # --- IN-MEMORY/PERSISTENT USER AND BOOKING MATRIX ---
 if "user_db" not in st.session_state:
-    st.session_state.user_db = {"rahul": hashlib.sha256("password123".encode()).hexdigest(), "amit": hashlib.sha256("mess456".encode()).hexdigest()}
+    st.session_state.user_db = {
+        "rahul": hashlib.sha256("password123".encode()).hexdigest(), 
+        "amit": hashlib.sha256("mess456".encode()).hexdigest()
+    }
 
 if "bookings_list" not in st.session_state:
     st.session_state.bookings_list = []
@@ -29,6 +40,7 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def verify_user(username, password):
+    # HARDCODED BYPASS FOR ADMIN: Guarantees access regardless of server file system states
     if username == "admin" and password == "adminpassword":
         return {"authenticated": True, "is_admin": True}
     
@@ -97,7 +109,8 @@ if st.sidebar.button("Log Out System"):
     st.session_state.is_admin = False
     st.rerun()
 
-now = datetime.now()
+# Dynamic Time tracking with localized zone injection (IST)
+now = datetime.now(IST)
 current_time = now.time()
 
 nav_options = ["Book Meals", "My Monthly Bill & History"]
@@ -202,11 +215,3 @@ elif view_selection == "👑 Admin Management Console" and st.session_state.is_a
                                index=now.month - 1, key="admin_mnth")
     
     a_month_num_str = f"{['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].index(admin_month) + 1:02d}"
-    admin_filter_prefix = f"{admin_year}-{a_month_num_str}"
-    
-    admin_records = [b for b in st.session_state.bookings_list if b['booking_date'].startswith(admin_filter_prefix)]
-    
-    tab1, tab2 = st.tabs(["💰 User Invoicing Balance Sheets", "🔍 Detailed System Audit Trail Logs"])
-    
-    if not admin_records:
-        with tab1: st.info("No active operations invoices found inside the selected billing month.")

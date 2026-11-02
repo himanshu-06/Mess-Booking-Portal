@@ -8,7 +8,6 @@ from datetime import datetime, time
 DB_FILE = "mess_booking.db"
 
 def get_db_connection():
-    # Adding timeout parameter prevents database locking issues on Streamlit Cloud
     conn = sqlite3.connect(DB_FILE, timeout=10, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
@@ -17,13 +16,11 @@ def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Enable WAL mode for high concurrency environments on cloud hosts
     try:
         cursor.execute("PRAGMA journal_mode=WAL;")
     except Exception:
         pass
 
-    # Create Users Table safely
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
@@ -32,7 +29,6 @@ def init_db():
         )
     ''')
     
-    # Create Bookings Table safely
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS bookings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,10 +41,8 @@ def init_db():
         )
     ''')
     
-    # Standardised admin seeding pattern
     admin_hash = hashlib.sha256("adminpassword".encode()).hexdigest()
     
-    # Safe check: Only insert if not present
     try:
         cursor.execute("SELECT username FROM users WHERE username = 'admin'")
         if not cursor.fetchone():
@@ -70,7 +64,6 @@ def init_db():
     finally:
         conn.close()
 
-# Safe application boot wrapper
 try:
     init_db()
 except Exception as e:
@@ -251,3 +244,12 @@ if view_selection == "Book Meals":
                                   (st.session_state.username, target_date_str, "Dinner", dinner_price, now.strftime("%Y-%m-%d %H:%M:%S")))
                         conn.commit()
                         conn.close()
+                        st.success("Reservation logged successfully.")
+                        st.rerun()
+                    except Exception:
+                        st.error("Database sync delay. Please try again.")
+
+# --- PANEL 2: INDIVIDUAL BILLING RECORDS ---
+elif view_selection == "My Monthly Bill & History":
+    st.header("📊 Individual Statement & Reconciliation Desk")
+    

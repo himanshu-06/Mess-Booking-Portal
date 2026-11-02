@@ -248,4 +248,4 @@ if view_selection == "Book Meals":
                     try:
                         conn = get_db_connection()
                         c = conn.cursor()
-                        c.execute("INSERT INTO bookings (username, booking_date, meal_type, price, timestamp) VALUES (?, ?, ?, ?, ?)",
+                        c.execute("INSERT INTO bookings (username, booking_date, meal_type, price, timestamp) VALUES (?, ?, ?, ?, ?)")

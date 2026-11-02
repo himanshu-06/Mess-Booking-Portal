@@ -164,7 +164,7 @@ if not st.session_state.authenticated:
                     st.error("Registration failed. Account username already exists in database.")
     st.stop()
 
-# --- MAIN SYSTEM INTERFACE (AUTHENTICATED) ---
+# --- MAIN SYSTEM INTERFACE (AUTHE.NTICATED) ---
 st.sidebar.markdown(f"### 👤 Active User: **{st.session_state.username}**")
 if st.session_state.is_admin:
     st.sidebar.info("👑 Administrator Account Context Active")

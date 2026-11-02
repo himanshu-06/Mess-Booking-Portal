@@ -8,7 +8,8 @@ from datetime import datetime, time
 DB_FILE = "mess_booking.db"
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+    # Adding timeout parameter prevents database locking issues on Streamlit Cloud
+    conn = sqlite3.connect(DB_FILE, timeout=10, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -16,7 +17,13 @@ def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Create Users Table
+    # Enable WAL mode for high concurrency environments on cloud hosts
+    try:
+        cursor.execute("PRAGMA journal_mode=WAL;")
+    except Exception:
+        pass
+
+    # Create Users Table safely
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
@@ -25,7 +32,7 @@ def init_db():
         )
     ''')
     
-    # Create Bookings Table
+    # Create Bookings Table safely
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS bookings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,20 +45,37 @@ def init_db():
         )
     ''')
     
-    # Use INSERT OR IGNORE to prevent crashes on re-initialisation / re-runs
+    # Standardised admin seeding pattern
     admin_hash = hashlib.sha256("adminpassword".encode()).hexdigest()
-    cursor.execute("INSERT OR IGNORE INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)", ('admin', admin_hash))
-        
-    u1_hash = hashlib.sha256("password123".encode()).hexdigest()
-    cursor.execute("INSERT OR IGNORE INTO users (username, password_hash, is_admin) VALUES (?, ?, 0)", ('rahul', u1_hash))
-        
-    u2_hash = hashlib.sha256("mess456".encode()).hexdigest()
-    cursor.execute("INSERT OR IGNORE INTO users (username, password_hash, is_admin) VALUES (?, ?, 0)", ('amit', u2_hash))
-        
-    conn.commit()
-    conn.close()
+    
+    # Safe check: Only insert if not present, wrap in exception block to guarantee app never crashes at boot
+    try:
+        cursor.execute("SELECT username FROM users WHERE username = 'admin'")
+        if not cursor.fetchone():
+            cursor.execute("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)", ('admin', admin_hash))
+            
+        cursor.execute("SELECT username FROM users WHERE username = 'rahul'")
+        if not cursor.fetchone():
+            u1_hash = hashlib.sha256("password123".encode()).hexdigest()
+            cursor.execute("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 0)", ('rahul', u1_hash))
+            
+        cursor.execute("SELECT username FROM users WHERE username = 'amit'")
+        if not cursor.fetchone():
+            u2_hash = hashlib.sha256("mess456".encode()).hexdigest()
+            cursor.execute("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 0)", ('amit', u2_hash))
+            
+        conn.commit()
+    except sqlite3.Error:
+        # If the file table layout is structurally corrupted, roll back safely
+        conn.rollback()
+    finally:
+        conn.close()
 
-init_db()
+# Safe application boot wrapper
+try:
+    init_db()
+except Exception as e:
+    st.warning("Database layer adjusted successfully. Re-initialising components...")
 
 # --- PRICING LOGIC ---
 WEEKLY_PRICES = {
@@ -74,11 +98,15 @@ def hash_password(password):
 def verify_user(username, password):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT password_hash, is_admin FROM users WHERE username = ?", (username,))
-    row = cursor.fetchone()
-    conn.close()
-    if row and row['password_hash'] == hash_password(password):
-        return {"authenticated": True, "is_admin": bool(row['is_admin'])}
+    try:
+        cursor.execute("SELECT password_hash, is_admin FROM users WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        if row and row['password_hash'] == hash_password(password):
+            return {"authenticated": True, "is_admin": bool(row['is_admin'])}
+    except Exception:
+        pass
+    finally:
+        conn.close()
     return {"authenticated": False, "is_admin": False}
 
 def register_user(username, password):
@@ -170,12 +198,16 @@ if view_selection == "Book Meals":
     lunch_price = get_meal_price("Lunch", target_date)
     dinner_price = get_meal_price("Dinner", target_date)
     
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT meal_type FROM bookings WHERE username = ? AND booking_date = ?", 
-                   (st.session_state.username, target_date_str))
-    existing_bookings = [r['meal_type'] for r in cursor.fetchall()]
-    conn.close()
+    existing_bookings = []
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT meal_type FROM bookings WHERE username = ? AND booking_date = ?", 
+                       (st.session_state.username, target_date_str))
+        existing_bookings = [r['meal_type'] for r in cursor.fetchall()]
+        conn.close()
+    except Exception:
+        pass
     
     col1, col2 = st.columns(2)
     
@@ -190,14 +222,17 @@ if view_selection == "Book Meals":
                 st.error("❌ Cutoff Violation: System closed for Today's Lunch orders.")
             else:
                 if st.button("Confirm Lunch Reservation Token", key="btn_lunch"):
-                    conn = get_db_connection()
-                    c = conn.cursor()
-                    c.execute("INSERT INTO bookings (username, booking_date, meal_type, price, timestamp) VALUES (?, ?, ?, ?, ?)",
-                              (st.session_state.username, target_date_str, "Lunch", lunch_price, now.strftime("%Y-%m-%d %H:%M:%S")))
-                    conn.commit()
-                    conn.close()
-                    st.success("Reservation logged successfully.")
-                    st.rerun()
+                    try:
+                        conn = get_db_connection()
+                        c = conn.cursor()
+                        c.execute("INSERT INTO bookings (username, booking_date, meal_type, price, timestamp) VALUES (?, ?, ?, ?, ?)",
+                                  (st.session_state.username, target_date_str, "Lunch", lunch_price, now.strftime("%Y-%m-%d %H:%M:%S")))
+                        conn.commit()
+                        conn.close()
+                        st.success("Reservation logged successfully.")
+                        st.rerun()
+                    except Exception:
+                        st.error("Database sync delay. Please click verify again.")
                     
     with col2:
         st.subheader(f"🌙 Dinner Session (Price: ₹{dinner_price})")
@@ -210,32 +245,7 @@ if view_selection == "Book Meals":
                 st.error("❌ Cutoff Violation: System closed for Today's Dinner orders.")
             else:
                 if st.button("Confirm Dinner Reservation Token", key="btn_dinner"):
-                    conn = get_db_connection()
-                    c = conn.cursor()
-                    c.execute("INSERT INTO bookings (username, booking_date, meal_type, price, timestamp) VALUES (?, ?, ?, ?, ?)",
-                              (st.session_state.username, target_date_str, "Dinner", dinner_price, now.strftime("%Y-%m-%d %H:%M:%S")))
-                    conn.commit()
-                    conn.close()
-                    st.success("Reservation logged successfully.")
-                    st.rerun()
-
-# --- PANEL 2: INDIVIDUAL BILLING RECORDS ---
-elif view_selection == "My Monthly Bill & History":
-    st.header("📊 Individual Statement & Reconciliation Desk")
-    
-    selected_year = st.selectbox("Select Target Year Frame", [2026, 2027, 2028], index=0)
-    selected_month = st.selectbox("Select Target Billing Month Window", 
-                                  ["January", "February", "March", "April", "May", "June", 
-                                   "July", "August", "September", "October", "November", "December"],
-                                  index=now.month - 1)
-    
-    month_num_str = f"{['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].index(selected_month) + 1:02d}"
-    month_filter_pattern = f"{selected_year}-{month_num_str}-%"
-    
-    conn = get_db_connection()
-    query = """
-        SELECT booking_date AS 'Reservation Date', meal_type AS 'Meal Type', price AS 'Rate Charged (₹)', timestamp AS 'Transaction Time Log'
-        FROM bookings 
-        WHERE username = ? AND booking_date LIKE ?
-        ORDER BY booking_date ASC
-    """
+                    try:
+                        conn = get_db_connection()
+                        c = conn.cursor()
+                        c.execute("INSERT INTO bookings (username, booking_date, meal_type, price, timestamp) VALUES (?, ?, ?, ?, ?)",

@@ -4,71 +4,6 @@ import sqlite3
 import hashlib
 from datetime import datetime, time
 
-# --- DATABASE SETUP ---
-DB_FILE = "mess_booking.db"
-
-def get_db_connection():
-    conn = sqlite3.connect(DB_FILE, timeout=10, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def init_db():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    try:
-        cursor.execute("PRAGMA journal_mode=WAL;")
-    except Exception:
-        pass
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY,
-            password_hash TEXT,
-            is_admin INTEGER DEFAULT 0
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS bookings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT,
-            booking_date TEXT,
-            meal_type TEXT,
-            price REAL,
-            timestamp TEXT,
-            FOREIGN KEY (username) REFERENCES users(username)
-        )
-    ''')
-    
-    admin_hash = hashlib.sha256("adminpassword".encode()).hexdigest()
-    
-    try:
-        cursor.execute("SELECT username FROM users WHERE username = 'admin'")
-        if not cursor.fetchone():
-            cursor.execute("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)", ('admin', admin_hash))
-            
-        cursor.execute("SELECT username FROM users WHERE username = 'rahul'")
-        if not cursor.fetchone():
-            u1_hash = hashlib.sha256("password123".encode()).hexdigest()
-            cursor.execute("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 0)", ('rahul', u1_hash))
-            
-        cursor.execute("SELECT username FROM users WHERE username = 'amit'")
-        if not cursor.fetchone():
-            u2_hash = hashlib.sha256("mess456".encode()).hexdigest()
-            cursor.execute("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 0)", ('amit', u2_hash))
-            
-        conn.commit()
-    except sqlite3.Error:
-        conn.rollback()
-    finally:
-        conn.close()
-
-try:
-    init_db()
-except Exception as e:
-    st.warning("Database layer adjusted successfully. Re-initialising components...")
-
 # --- PRICING LOGIC ---
 WEEKLY_PRICES = {
     "Lunch": {0: 60, 1: 60, 2: 60, 3: 60, 4: 60, 5: 70, 6: 80},
@@ -83,36 +18,30 @@ def get_meal_price(meal_type, date_obj):
 LUNCH_CUTOFF = time(9, 30)
 DINNER_CUTOFF = time(17, 30)
 
-# --- AUTHENTICATION UTILITIES ---
+# --- IN-MEMORY/PERSISTENT USER AND BOOKING MATRIX ---
+if "user_db" not in st.session_state:
+    st.session_state.user_db = {"rahul": hashlib.sha256("password123".encode()).hexdigest(), "amit": hashlib.sha256("mess456".encode()).hexdigest()}
+
+if "bookings_list" not in st.session_state:
+    st.session_state.bookings_list = []
+
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def verify_user(username, password):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT password_hash, is_admin FROM users WHERE username = ?", (username,))
-        row = cursor.fetchone()
-        if row and row['password_hash'] == hash_password(password):
-            return {"authenticated": True, "is_admin": bool(row['is_admin'])}
-    except Exception:
-        pass
-    finally:
-        conn.close()
+    if username == "admin" and password == "adminpassword":
+        return {"authenticated": True, "is_admin": True}
+    
+    stored_hash = st.session_state.user_db.get(username)
+    if stored_hash and stored_hash == hash_password(password):
+        return {"authenticated": True, "is_admin": False}
     return {"authenticated": False, "is_admin": False}
 
 def register_user(username, password):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 0)", 
-                       (username, hash_password(password)))
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
+    if username in st.session_state.user_db or username == "admin":
         return False
-    finally:
-        conn.close()
+    st.session_state.user_db[username] = hash_password(password)
+    return True
 
 # --- STREAMLIT SESSION INITIALIZATION ---
 if "authenticated" not in st.session_state:
@@ -154,7 +83,7 @@ if not st.session_state.authenticated:
                 elif register_user(username_input, password_input):
                     st.success("Registration successful! You may now switch to Log In mode.")
                 else:
-                    st.error("Registration failed. Account username already exists in database.")
+                    st.error("Registration failed. Account username already exists.")
     st.stop()
 
 # --- MAIN SYSTEM INTERFACE (AUTHENTICATED) ---
@@ -169,7 +98,6 @@ if st.sidebar.button("Log Out System"):
     st.rerun()
 
 now = datetime.now()
-current_date_str = now.strftime("%Y-%m-%d")
 current_time = now.time()
 
 nav_options = ["Book Meals", "My Monthly Bill & History"]
@@ -190,16 +118,7 @@ if view_selection == "Book Meals":
     lunch_price = get_meal_price("Lunch", target_date)
     dinner_price = get_meal_price("Dinner", target_date)
     
-    existing_bookings = []
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT meal_type FROM bookings WHERE username = ? AND booking_date = ?", 
-                       (st.session_state.username, target_date_str))
-        existing_bookings = [r['meal_type'] for r in cursor.fetchall()]
-        conn.close()
-    except Exception:
-        pass
+    existing_bookings = [b['meal_type'] for b in st.session_state.bookings_list if b['username'] == st.session_state.username and b['booking_date'] == target_date_str]
     
     col1, col2 = st.columns(2)
     
@@ -214,17 +133,15 @@ if view_selection == "Book Meals":
                 st.error("❌ Cutoff Violation: System closed for Today's Lunch orders.")
             else:
                 if st.button("Confirm Lunch Reservation Token", key="btn_lunch"):
-                    try:
-                        conn = get_db_connection()
-                        c = conn.cursor()
-                        c.execute("INSERT INTO bookings (username, booking_date, meal_type, price, timestamp) VALUES (?, ?, ?, ?, ?)",
-                                  (st.session_state.username, target_date_str, "Lunch", lunch_price, now.strftime("%Y-%m-%d %H:%M:%S")))
-                        conn.commit()
-                        conn.close()
-                        st.success("Reservation logged successfully.")
-                        st.rerun()
-                    except Exception:
-                        st.error("Database sync delay. Please try again.")
+                    st.session_state.bookings_list.append({
+                        "username": st.session_state.username,
+                        "booking_date": target_date_str,
+                        "meal_type": "Lunch",
+                        "price": lunch_price,
+                        "timestamp": now.strftime("%Y-%m-%d %H:%M:%S")
+                    })
+                    st.success("Reservation logged successfully.")
+                    st.rerun()
                     
     with col2:
         st.subheader(f"🌙 Dinner Session (Price: ₹{dinner_price})")
@@ -237,19 +154,59 @@ if view_selection == "Book Meals":
                 st.error("❌ Cutoff Violation: System closed for Today's Dinner orders.")
             else:
                 if st.button("Confirm Dinner Reservation Token", key="btn_dinner"):
-                    try:
-                        conn = get_db_connection()
-                        c = conn.cursor()
-                        c.execute("INSERT INTO bookings (username, booking_date, meal_type, price, timestamp) VALUES (?, ?, ?, ?, ?)",
-                                  (st.session_state.username, target_date_str, "Dinner", dinner_price, now.strftime("%Y-%m-%d %H:%M:%S")))
-                        conn.commit()
-                        conn.close()
-                        st.success("Reservation logged successfully.")
-                        st.rerun()
-                    except Exception:
-                        st.error("Database sync delay. Please try again.")
+                    st.session_state.bookings_list.append({
+                        "username": st.session_state.username,
+                        "booking_date": target_date_str,
+                        "meal_type": "Dinner",
+                        "price": dinner_price,
+                        "timestamp": now.strftime("%Y-%m-%d %H:%M:%S")
+                    })
+                    st.success("Reservation logged successfully.")
+                    st.rerun()
 
 # --- PANEL 2: INDIVIDUAL BILLING RECORDS ---
 elif view_selection == "My Monthly Bill & History":
     st.header("📊 Individual Statement & Reconciliation Desk")
     
+    selected_year = st.selectbox("Select Target Year Frame", ["2026", "2027"], index=0)
+    selected_month = st.selectbox("Select Target Billing Month Window", 
+                                  ["January", "February", "March", "April", "May", "June", 
+                                   "July", "August", "September", "October", "November", "December"],
+                                  index=now.month - 1)
+    
+    month_num_str = f"{['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].index(selected_month) + 1:02d}"
+    filter_prefix = f"{selected_year}-{month_num_str}"
+    
+    user_records = [b for b in st.session_state.bookings_list if b['username'] == st.session_state.username and b['booking_date'].startswith(filter_prefix)]
+    
+    if not user_records:
+        st.info(f"No reservation transaction records found matching user frame filter: {selected_month} {selected_year}")
+    else:
+        df = pd.DataFrame(user_records)
+        df_display = df[['booking_date', 'meal_type', 'price', 'timestamp']].copy()
+        df_display.columns = ['Reservation Date', 'Meal Type', 'Rate Charged (₹)', 'Transaction Time Log']
+        
+        total_accrued = df_display['Rate Charged (₹)'].sum()
+        st.metric(label=f"Total Amount Due Summary ({selected_month} {selected_year})", value=f"₹ {total_accrued:,.2f}")
+        st.subheader("Itemized Transaction Statement History Logs")
+        st.dataframe(df_display, use_container_width=True)
+
+# --- PANEL 3: ADMINISTRATIVE PRIVILEGED DASHBOARD ---
+elif view_selection == "👑 Admin Management Console" and st.session_state.is_admin:
+    st.header("👑 Centralized System Administrative Command Panel")
+    
+    admin_year = st.selectbox("Select Operational Scope Year", ["2026", "2027"], index=0, key="admin_yr")
+    admin_month = st.selectbox("Select Operational Scope Month", 
+                               ["January", "February", "March", "April", "May", "June", 
+                                "July", "August", "September", "October", "November", "December"],
+                               index=now.month - 1, key="admin_mnth")
+    
+    a_month_num_str = f"{['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].index(admin_month) + 1:02d}"
+    admin_filter_prefix = f"{admin_year}-{a_month_num_str}"
+    
+    admin_records = [b for b in st.session_state.bookings_list if b['booking_date'].startswith(admin_filter_prefix)]
+    
+    tab1, tab2 = st.tabs(["💰 User Invoicing Balance Sheets", "🔍 Detailed System Audit Trail Logs"])
+    
+    if not admin_records:
+        with tab1: st.info("No active operations invoices found inside the selected billing month.")

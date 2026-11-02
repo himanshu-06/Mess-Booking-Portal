@@ -38,22 +38,15 @@ def init_db():
         )
     ''')
     
-    # Seed default Admin account if it doesn't exist
-    cursor.execute("SELECT * FROM users WHERE username = 'admin'")
-    if not cursor.fetchone():
-        admin_hash = hashlib.sha256("adminpassword".encode()).hexdigest()
-        cursor.execute("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)", ('admin', admin_hash))
+    # Use INSERT OR IGNORE to prevent crashes on re-initialisation / re-runs
+    admin_hash = hashlib.sha256("adminpassword".encode()).hexdigest()
+    cursor.execute("INSERT OR IGNORE INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)", ('admin', admin_hash))
         
-    # Seed default test users if they don't exist
-    cursor.execute("SELECT * FROM users WHERE username = 'rahul'")
-    if not cursor.fetchone():
-        u1_hash = hashlib.sha256("password123".encode()).hexdigest()
-        cursor.execute("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 0)", ('rahul', u1_hash))
+    u1_hash = hashlib.sha256("password123".encode()).hexdigest()
+    cursor.execute("INSERT OR IGNORE INTO users (username, password_hash, is_admin) VALUES (?, ?, 0)", ('rahul', u1_hash))
         
-    cursor.execute("SELECT * FROM users WHERE username = 'amit'")
-    if not cursor.fetchone():
-        u2_hash = hashlib.sha256("mess456".encode()).hexdigest()
-        cursor.execute("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 0)", ('amit', u2_hash))
+    u2_hash = hashlib.sha256("mess456".encode()).hexdigest()
+    cursor.execute("INSERT OR IGNORE INTO users (username, password_hash, is_admin) VALUES (?, ?, 0)", ('amit', u2_hash))
         
     conn.commit()
     conn.close()
@@ -61,10 +54,8 @@ def init_db():
 init_db()
 
 # --- PRICING LOGIC ---
-# Standard pricing matrix: Weekly repeating base rates (Monday=0, Sunday=6)
-# Customize these values as required for your mess structure
 WEEKLY_PRICES = {
-    "Lunch": {0: 60, 1: 60, 2: 60, 3: 60, 4: 60, 5: 70, 6: 80},  # Weekend rates higher
+    "Lunch": {0: 60, 1: 60, 2: 60, 3: 60, 4: 60, 5: 70, 6: 80},
     "Dinner": {0: 70, 1: 70, 2: 70, 3: 70, 4: 70, 5: 80, 6: 90}
 }
 
@@ -147,7 +138,6 @@ if not st.session_state.authenticated:
     st.stop()
 
 # --- MAIN SYSTEM INTERFACE (AUTHENTICATED) ---
-# Sidebar Controller
 st.sidebar.markdown(f"### 👤 Active User: **{st.session_state.username}**")
 if st.session_state.is_admin:
     st.sidebar.info("👑 Administrator Account Context Active")
@@ -158,12 +148,10 @@ if st.sidebar.button("Log Out System"):
     st.session_state.is_admin = False
     st.rerun()
 
-# Global Context State Variables
 now = datetime.now()
 current_date_str = now.strftime("%Y-%m-%d")
 current_time = now.time()
 
-# Administrative Navigation Hub Routing
 nav_options = ["Book Meals", "My Monthly Bill & History"]
 if st.session_state.is_admin:
     nav_options.append("👑 Admin Management Console")
@@ -179,11 +167,9 @@ if view_selection == "Book Meals":
     target_date_str = target_date.strftime("%Y-%m-%d")
     is_today = (target_date == now.date())
     
-    # Calculate price rules for chosen targets
     lunch_price = get_meal_price("Lunch", target_date)
     dinner_price = get_meal_price("Dinner", target_date)
     
-    # Look up existing records
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT meal_type FROM bookings WHERE username = ? AND booking_date = ?", 
@@ -200,7 +186,6 @@ if view_selection == "Book Meals":
         if "Lunch" in existing_bookings:
             st.success("✅ Lunch Booked Successfully")
         else:
-            # Time boundary validation enforcement logic
             if is_today and current_time > LUNCH_CUTOFF:
                 st.error("❌ Cutoff Violation: System closed for Today's Lunch orders.")
             else:
@@ -234,11 +219,23 @@ if view_selection == "Book Meals":
                     st.success("Reservation logged successfully.")
                     st.rerun()
 
-# --- PANEL 2: INDIVIDUAL BILLING RECORDS. ---
+# --- PANEL 2: INDIVIDUAL BILLING RECORDS ---
 elif view_selection == "My Monthly Bill & History":
     st.header("📊 Individual Statement & Reconciliation Desk")
     
-    selected_year = st.selectbox("Select Target Year Frame", [2026, 2027], index=0)
+    selected_year = st.selectbox("Select Target Year Frame", [2026, 2027, 2028], index=0)
     selected_month = st.selectbox("Select Target Billing Month Window", 
                                   ["January", "February", "March", "April", "May", "June", 
-                                   "July", "August", "September", "October", "November", "December"])
+                                   "July", "August", "September", "October", "November", "December"],
+                                  index=now.month - 1)
+    
+    month_num_str = f"{['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].index(selected_month) + 1:02d}"
+    month_filter_pattern = f"{selected_year}-{month_num_str}-%"
+    
+    conn = get_db_connection()
+    query = """
+        SELECT booking_date AS 'Reservation Date', meal_type AS 'Meal Type', price AS 'Rate Charged (₹)', timestamp AS 'Transaction Time Log'
+        FROM bookings 
+        WHERE username = ? AND booking_date LIKE ?
+        ORDER BY booking_date ASC
+    """

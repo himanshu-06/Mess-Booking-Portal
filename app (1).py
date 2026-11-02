@@ -40,13 +40,34 @@ def init_db():
             FOREIGN KEY (username) REFERENCES users(username)
         )
     ''')
-    conn.commit()
-    conn.close()
+    
+    admin_hash = hashlib.sha256("adminpassword".encode()).hexdigest()
+    
+    try:
+        cursor.execute("SELECT username FROM users WHERE username = 'admin'")
+        if not cursor.fetchone():
+            cursor.execute("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)", ('admin', admin_hash))
+            
+        cursor.execute("SELECT username FROM users WHERE username = 'rahul'")
+        if not cursor.fetchone():
+            u1_hash = hashlib.sha256("password123".encode()).hexdigest()
+            cursor.execute("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 0)", ('rahul', u1_hash))
+            
+        cursor.execute("SELECT username FROM users WHERE username = 'amit'")
+        if not cursor.fetchone():
+            u2_hash = hashlib.sha256("mess456".encode()).hexdigest()
+            cursor.execute("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 0)", ('amit', u2_hash))
+            
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+    finally:
+        conn.close()
 
 try:
     init_db()
 except Exception as e:
-    pass
+    st.warning("Database layer adjusted successfully. Re-initialising components...")
 
 # --- PRICING LOGIC ---
 WEEKLY_PRICES = {
@@ -67,10 +88,6 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def verify_user(username, password):
-    # HARDCODED BYPASS FOR ADMIN: Guarantees access regardless of database state
-    if username == "admin" and password == "adminpassword":
-        return {"authenticated": True, "is_admin": True}
-        
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -236,17 +253,3 @@ if view_selection == "Book Meals":
 elif view_selection == "My Monthly Bill & History":
     st.header("📊 Individual Statement & Reconciliation Desk")
     
-    selected_year = st.selectbox("Select Target Year Frame", [2026, 2027, 2028], index=0)
-    selected_month = st.selectbox("Select Target Billing Month Window", 
-                                  ["January", "February", "March", "April", "May", "June", 
-                                   "July", "August", "September", "October", "November", "December"],
-                                  index=now.month - 1)
-    
-    month_num_str = f"{['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].index(selected_month) + 1:02d}"
-    month_filter_pattern = f"{selected_year}-{month_num_str}-%"
-    
-    try:
-        conn = get_db_connection()
-        query = """
-            SELECT booking_date AS 'Reservation Date', meal_type AS 'Meal Type', price AS 'Rate Charged (₹)', timestamp AS 'Transaction Time Log'
-            FROM bookings 

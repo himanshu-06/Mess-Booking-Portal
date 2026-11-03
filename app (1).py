@@ -10,15 +10,35 @@ try:
 except Exception:
     IST = zoneinfo.ZoneInfo("UTC")
 
-# --- PRICING LOGIC ---
+# --- PRICING LOGIC (Veg & Non-Veg for Wed, Fri, Sun) ---
+# Weekday indexing: 0:Mon, 1:Tue, 2:Wed, 3:Thu, 4:Fri, 5:Sat, 6:Sun
 WEEKLY_PRICES = {
-    "Lunch": {0: 60, 1: 60, 2: 60, 3: 60, 4: 60, 5: 70, 6: 80},
-    "Dinner": {0: 70, 1: 70, 2: 70, 3: 70, 4: 70, 5: 80, 6: 90}
+    "Lunch": {
+        0: {"Veg": 90},
+        1: {"Veg": 80},
+        2: {"Veg": 60, "Non-Veg": 95},   # Wednesday
+        3: {"Veg": 60},
+        4: {"Veg": 60, "Non-Veg": 95},   # Friday
+        5: {"Veg": 70},
+        6: {"Veg": 80, "Non-Veg": 120}   # Sunday
+    },
+    "Dinner": {
+        0: {"Veg": 90},
+        1: {"Veg": 80},
+        2: {"Veg": 70, "Non-Veg": 110},  # Wednesday
+        3: {"Veg": 70},
+        4: {"Veg": 70, "Non-Veg": 110},  # Friday
+        5: {"Veg": 80},
+        6: {"Veg": 90, "Non-Veg": 130}   # Sunday
+    }
 }
 
-def get_meal_price(meal_type, date_obj):
+def get_meal_price(meal_type, date_obj, preference="Veg"):
     day_of_week = date_obj.weekday()
-    return WEEKLY_PRICES[meal_type].get(day_of_week, 60.0)
+    day_prices = WEEKLY_PRICES[meal_type].get(day_of_week, {"Veg": 60.0})
+    if isinstance(day_prices, dict):
+        return day_prices.get(preference, day_prices.get("Veg", 60.0))
+    return day_prices
 
 # --- TIME BOUNDARY CUTOFF RULES ---
 LUNCH_CUTOFF = time(9, 30)
@@ -123,20 +143,41 @@ if view_selection == "Book Meals":
     target_date = st.date_input("Select Date for Booking Selection Target", min_value=now.date())
     target_date_str = target_date.strftime("%Y-%m-%d")
     is_today = (target_date == now.date())
+    day_of_week = target_date.weekday()
     
-    lunch_price = get_meal_price("Lunch", target_date)
-    dinner_price = get_meal_price("Dinner", target_date)
+    # Wednesday (2), Friday (4), Sunday (6) have Veg/Non-Veg options
+    has_options = day_of_week in [2, 4, 6]
+    day_name = target_date.strftime("%A")
     
-    existing_bookings = [b['meal_type'] for b in st.session_state.bookings_list if b['username'] == st.session_state.username and b['booking_date'] == target_date_str]
+    if has_options:
+        st.info(f"✨ **{day_name} Special Menu Available:** Choose between Veg and Non-Veg preferences.")
+
+    existing_bookings = {b['meal_type']: b for b in st.session_state.bookings_list if b['username'] == st.session_state.username and b['booking_date'] == target_date_str}
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader(f"☀️ Lunch Session (Price: ₹{lunch_price})")
+        st.subheader("☀️ Lunch Session")
+        
+        lunch_pref = "Veg"
+        if has_options:
+            lunch_pref = st.radio(f"Lunch Option for {day_name}", ["Veg", "Non-Veg"], key=f"lunch_pref_{target_date_str}")
+        
+        lunch_price = get_meal_price("Lunch", target_date, lunch_pref)
+        st.write(f"**Selected Preference:** {lunch_pref} | **Price:** ₹{lunch_price}")
         st.write("🕒 Daily Order Cutoff Lock: **9:30 AM**")
         
         if "Lunch" in existing_bookings:
-            st.success("✅ Lunch Booked Successfully")
+            b_info = existing_bookings["Lunch"]
+            st.success(f"✅ Lunch Booked ({b_info.get('preference', 'Veg')} - ₹{b_info['price']})")
+            
+            if is_today and current_time > LUNCH_CUTOFF:
+                st.warning("🔒 Cancellation closed. Today's 9:30 AM cutoff has passed.")
+            else:
+                if st.button("Cancel Lunch Booking", key="cancel_lunch"):
+                    st.session_state.bookings_list = [b for b in st.session_state.bookings_list if not (b['username'] == st.session_state.username and b['booking_date'] == target_date_str and b['meal_type'] == 'Lunch')]
+                    st.success("Lunch booking cancelled successfully.")
+                    st.rerun()
         else:
             if is_today and current_time > LUNCH_CUTOFF:
                 st.error("❌ Cutoff Violation: System closed for Today's Lunch orders.")
@@ -146,6 +187,7 @@ if view_selection == "Book Meals":
                         "username": st.session_state.username,
                         "booking_date": target_date_str,
                         "meal_type": "Lunch",
+                        "preference": lunch_pref,
                         "price": lunch_price,
                         "timestamp": now.strftime("%Y-%m-%d %H:%M:%S")
                     })
@@ -153,11 +195,27 @@ if view_selection == "Book Meals":
                     st.rerun()
                     
     with col2:
-        st.subheader(f"🌙 Dinner Session (Price: ₹{dinner_price})")
+        st.subheader("🌙 Dinner Session")
+        
+        dinner_pref = "Veg"
+        if has_options:
+            dinner_pref = st.radio(f"Dinner Option for {day_name}", ["Veg", "Non-Veg"], key=f"dinner_pref_{target_date_str}")
+        
+        dinner_price = get_meal_price("Dinner", target_date, dinner_pref)
+        st.write(f"**Selected Preference:** {dinner_pref} | **Price:** ₹{dinner_price}")
         st.write("🕒 Daily Order Cutoff Lock: **5:30 PM**")
         
         if "Dinner" in existing_bookings:
-            st.success("✅ Dinner Booked Successfully")
+            b_info = existing_bookings["Dinner"]
+            st.success(f"✅ Dinner Booked ({b_info.get('preference', 'Veg')} - ₹{b_info['price']})")
+            
+            if is_today and current_time > DINNER_CUTOFF:
+                st.warning("🔒 Cancellation closed. Today's 5:30 PM cutoff has passed.")
+            else:
+                if st.button("Cancel Dinner Booking", key="cancel_dinner"):
+                    st.session_state.bookings_list = [b for b in st.session_state.bookings_list if not (b['username'] == st.session_state.username and b['booking_date'] == target_date_str and b['meal_type'] == 'Dinner')]
+                    st.success("Dinner booking cancelled successfully.")
+                    st.rerun()
         else:
             if is_today and current_time > DINNER_CUTOFF:
                 st.error("❌ Cutoff Violation: System closed for Today's Dinner orders.")
@@ -167,6 +225,7 @@ if view_selection == "Book Meals":
                         "username": st.session_state.username,
                         "booking_date": target_date_str,
                         "meal_type": "Dinner",
+                        "preference": dinner_pref,
                         "price": dinner_price,
                         "timestamp": now.strftime("%Y-%m-%d %H:%M:%S")
                     })
@@ -183,7 +242,8 @@ elif view_selection == "My Monthly Bill & History":
                                    "July", "August", "September", "October", "November", "December"],
                                   index=now.month - 1)
     
-    month_num_str = f"{['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].index(selected_month) + 1:02d}"
+    months_list = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+    month_num_str = f"{months_list.index(selected_month) + 1:02d}"
     filter_prefix = f"{selected_year}-{month_num_str}"
     
     user_records = [b for b in st.session_state.bookings_list if b['username'] == st.session_state.username and b['booking_date'].startswith(filter_prefix)]
@@ -192,8 +252,10 @@ elif view_selection == "My Monthly Bill & History":
         st.info(f"No reservation transaction records found matching: {selected_month} {selected_year}")
     else:
         df = pd.DataFrame(user_records)
-        df_display = df[['booking_date', 'meal_type', 'price', 'timestamp']].copy()
-        df_display.columns = ['Reservation Date', 'Meal Type', 'Rate Charged (₹)', 'Transaction Time Log']
+        if 'preference' not in df.columns:
+            df['preference'] = 'Veg'
+        df_display = df[['booking_date', 'meal_type', 'preference', 'price', 'timestamp']].copy()
+        df_display.columns = ['Reservation Date', 'Meal Type', 'Preference', 'Rate Charged (₹)', 'Transaction Time Log']
         
         total_accrued = df_display['Rate Charged (₹)'].sum()
         st.metric(label=f"Total Amount Due Summary ({selected_month} {selected_year})", value=f"₹ {total_accrued:,.2f}")
@@ -202,22 +264,20 @@ elif view_selection == "My Monthly Bill & History":
 
 # --- PANEL 3: ADMIN MANAGEMENT CONSOLE ---
 elif view_selection == "👑 Admin Management Console" and st.session_state.is_admin:
-    st.header("👑 Centralized System Administrative Command Panel")
+    st.header("👑 Admin Management & Master Ledger Console")
+    st.write("Overview of all institutional mess bookings and user billing records.")
     
-    # Quick live look at today's active meal booking counts
-    today_str = now.strftime("%Y-%m-%d")
-    today_lunch_count = sum(1 for b in st.session_state.bookings_list if b['booking_date'] == today_str and b['meal_type'] == 'Lunch')
-    today_dinner_count = sum(1 for b in st.session_state.bookings_list if b['booking_date'] == today_str and b['meal_type'] == 'Dinner')
-    
-    st.subheader(f"📊 Headcount Tracker for Today ({now.strftime('%d-%b-%Y')})")
-    metric_col1, metric_col2 = st.columns(2)
-    with metric_col1:
-        st.metric(label="☀️ Lunch Bookings for Today", value=f"{today_lunch_count} People")
-    with metric_col2:
-        st.metric(label="🌙 Dinner Bookings for Today", value=f"{today_dinner_count} People")
-    
-    st.write("---")
-    
-    # Month/Year filtering tools for billing sheets
-    st.subheader("🗓️ Historical Invoicing & Monthly Ledger Checks")
-    admin_year = st.selectbox("Select Operational Scope Year", ["2026", "2027"], index=0, key="admin_yr")
+    if not st.session_state.bookings_list:
+        st.info("No bookings recorded in the system yet.")
+    else:
+        df_all = pd.DataFrame(st.session_state.bookings_list)
+        if 'preference' not in df_all.columns:
+            df_all['preference'] = 'Veg'
+            
+        st.subheader("All User Reservations")
+        st.dataframe(df_all[['username', 'booking_date', 'meal_type', 'preference', 'price', 'timestamp']], use_container_width=True)
+        
+        st.subheader("User-wise Total Billing Summary")
+        summary_df = df_all.groupby('username')['price'].sum().reset_index()
+        summary_df.columns = ['Username', 'Total Due (₹)']
+        st.dataframe(summary_df, use_container_width=True)

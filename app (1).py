@@ -150,7 +150,7 @@ if view_selection == "Book Meals":
     day_name = target_date.strftime("%A")
     
     if has_options:
-        st.info(f"✨ **{day_name} Special Menu Available:** Choose between Veg and Non-Veg preferences.")
+        st.info(f"✨ **{day_name} Non-veg Available:** Choose between Veg and Non-Veg preferences.")
 
     existing_bookings = {b['meal_type']: b for b in st.session_state.bookings_list if b['username'] == st.session_state.username and b['booking_date'] == target_date_str}
     

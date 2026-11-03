@@ -16,20 +16,20 @@ WEEKLY_PRICES = {
     "Lunch": {
         0: {"Veg": 90},
         1: {"Veg": 80},
-        2: {"Veg": 60, "Non-Veg": 95},   # Wednesday
-        3: {"Veg": 60},
-        4: {"Veg": 60, "Non-Veg": 95},   # Friday
-        5: {"Veg": 70},
-        6: {"Veg": 80, "Non-Veg": 120}   # Sunday
+        2: {"Veg": 100, "Non-Veg": 100},   # Wednesday
+        3: {"Veg": 80},
+        4: {"Veg": 100, "Non-Veg": 100},   # Friday
+        5: {"Veg": 90},
+        6: {"Veg": 110, "Non-Veg": 150}   # Sunday
     },
     "Dinner": {
         0: {"Veg": 90},
         1: {"Veg": 80},
-        2: {"Veg": 70, "Non-Veg": 110},  # Wednesday
+        2: {"Veg": 110, "Non-Veg": 140},  # Wednesday
         3: {"Veg": 70},
-        4: {"Veg": 70, "Non-Veg": 110},  # Friday
+        4: {"Veg": 70, "Non-Veg": 90},  # Friday
         5: {"Veg": 80},
-        6: {"Veg": 90, "Non-Veg": 130}   # Sunday
+        6: {"Veg": 90, "Non-Veg": 90}   # Sunday
     }
 }
 
@@ -81,8 +81,8 @@ if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
 
 # --- UI INTERFACE CONFIGURATION ---
-st.set_page_config(page_title="Mess Booking System", page_icon="🍲", layout="wide")
-st.title("🍲 Institutional Mess Booking & Ledger Portal")
+st.set_page_config(page_title="GET Hostel Mess Booking ", page_icon="🍲", layout="wide")
+st.title("🍲 GET Hostel Mess Booking")
 
 # --- AUTHENTICATION CONTROLLER ---
 if not st.session_state.authenticated:

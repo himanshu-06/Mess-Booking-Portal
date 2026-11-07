@@ -15,20 +15,20 @@ except Exception:
 WEEKLY_PRICES = {
     "Lunch": {
         0: {"Veg": 90},
-        1: {"Veg": 80},
+        1: {"Veg": 75},
         2: {"Veg": 100, "Non-Veg": 100},   # Wednesday
         3: {"Veg": 80},
         4: {"Veg": 100, "Non-Veg": 100},   # Friday
         5: {"Veg": 90},
-        6: {"Veg": 110, "Non-Veg": 150}   # Sunday
+        6: {"Veg": 120, "Non-Veg": 150}   # Sunday
     },
     "Dinner": {
         0: {"Veg": 90},
-        1: {"Veg": 80},
-        2: {"Veg": 110, "Non-Veg": 140},  # Wednesday
-        3: {"Veg": 70},
-        4: {"Veg": 70, "Non-Veg": 90},  # Friday
-        5: {"Veg": 80},
+        1: {"Veg": 90},
+        2: {"Veg": 110, "Non-Veg": 130},  # Wednesday
+        3: {"Veg": 100},
+        4: {"Veg": 120, "Non-Veg": 140},  # Friday
+        5: {"Veg": 90},
         6: {"Veg": 90, "Non-Veg": 90}   # Sunday
     }
 }
